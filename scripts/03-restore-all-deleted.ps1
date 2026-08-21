@@ -1,5 +1,14 @@
 #requires -Version 5.1
 #requires -Modules Az.Storage
+# ==============================================================================
+# DISCLAIMER: Provided "AS IS", without warranty of any kind, express or
+# implied, including but not limited to warranties of merchantability,
+# fitness for a particular purpose, and non-infringement. Use at your own
+# risk. Review this script fully and test it in a non-production environment
+# before running it against any account containing data you care about. The
+# author(s) accept no liability for any data loss, downtime, cost, or other
+# damage arising from its use.
+# ==============================================================================
 <#
 .SYNOPSIS
     Restores ALL soft-deleted items in a storage account container.
