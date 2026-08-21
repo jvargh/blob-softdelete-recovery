@@ -37,6 +37,10 @@
 
 param(
     [int]$TargetDirCount = 1308,
+    # 0 = default behavior (each leaf/~20% interior dir gets a random 1-4 files).
+    # >0 = spread exactly this many files across the eligible directories instead,
+    # for matching a specific real-world blob count (e.g. -TargetFileCount 30000).
+    [int]$TargetFileCount = 0,
     [string]$AccountName = "stsdbxlzhgns",
     [string]$Filesystem = "cortex",
     [string]$ManifestPath = "C:\Users\varghesejoji\Desktop\squad-test\blob-softdelete-recovery\artifacts\manifest.json",
@@ -56,6 +60,8 @@ if (-not $token) { throw "Failed to acquire access token" }
 Write-Output "Acquired token via az CLI"
 
 Add-Type -AssemblyName System.Net.Http
+[System.Net.ServicePointManager]::DefaultConnectionLimit = 100
+[System.Net.ServicePointManager]::Expect100Continue = $false
 $handler = New-Object System.Net.Http.HttpClientHandler
 $client = New-Object System.Net.Http.HttpClient($handler)
 $client.Timeout = [TimeSpan]::FromSeconds(100)
@@ -80,7 +86,7 @@ function Invoke-DfsRequest {
                 continue
             }
             if (-not $resp.IsSuccessStatusCode) {
-                $errBody = $resp.Content.ReadAsStringAsync().Result
+                $errBody = if ($null -ne $resp.Content) { $resp.Content.ReadAsStringAsync().Result } else { "<no response content>" }
                 throw "HTTP $([int]$resp.StatusCode) on $Method $Uri : $errBody"
             }
             return $resp
@@ -227,7 +233,9 @@ if ($ValidateOnly) {
     }
     Write-Output "Directory creation complete. Errors: $dirErrors"
 
-    # ---- 3. Create files (all leaves + ~20% of interior dirs get 1-4 files) ----
+    # ---- 3. Create files (default: leaves + ~20% of interior dirs get 1-4 files;
+    #         with -TargetFileCount: spread exactly that many files across those
+    #         same eligible directories instead) ----
     $manifest = New-Object System.Collections.Generic.List[object]
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
     $fileCount = 0
@@ -235,24 +243,53 @@ if ($ValidateOnly) {
     $interiorSample = $allDirs | Where-Object { $hasChild.Contains($_) } | Where-Object { $rnd.NextDouble() -lt 0.20 }
     $dirsGettingFiles = @($leaves) + @($interiorSample)
 
-    foreach ($d in $dirsGettingFiles) {
-        $numFiles = $rnd.Next(1, 5)
-        for ($f = 0; $f -lt $numFiles; $f++) {
-            $ext = @(".pdf",".xlsx",".docx",".txt")[$rnd.Next(0,4)]
-            $fname = "File_$($f)_$([guid]::NewGuid().ToString('N').Substring(0,8))$ext"
-            $fpath = "$d/$fname"
-            $size = $rnd.Next(300, 15000)
-            $bytes = New-Object byte[] $size
-            $rnd.NextBytes($bytes)
-            try {
-                New-RemoteFile -Path $fpath -Bytes $bytes
-                $hash = [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-","").ToLower()
-                $manifest.Add([PSCustomObject]@{ Path = $fpath; Size = $size; Sha256 = $hash })
-                $fileCount++
-                if ($fileCount % 200 -eq 0) { Write-Output "  ...created $fileCount files" }
-            } catch {
-                $fileErrors++
-                Write-Output "FILE-ERROR [$fpath]: $($_.Exception.Message)"
+    if ($TargetFileCount -gt 0) {
+        Write-Output "TargetFileCount specified: spreading $TargetFileCount files across $($dirsGettingFiles.Count) eligible directories"
+        $baseline = [Math]::Floor($TargetFileCount / $dirsGettingFiles.Count)
+        $extra = $TargetFileCount - ($baseline * $dirsGettingFiles.Count)
+        $di = 0
+        foreach ($d in $dirsGettingFiles) {
+            $di++
+            $numFiles = $baseline + $(if ($di -le $extra) { 1 } else { 0 })
+            for ($f = 0; $f -lt $numFiles; $f++) {
+                $ext = @(".pdf",".xlsx",".docx",".txt")[$rnd.Next(0,4)]
+                $fname = "File_$($f)_$([guid]::NewGuid().ToString('N').Substring(0,8))$ext"
+                $fpath = "$d/$fname"
+                $size = $rnd.Next(300, 15000)
+                $bytes = New-Object byte[] $size
+                $rnd.NextBytes($bytes)
+                try {
+                    New-RemoteFile -Path $fpath -Bytes $bytes
+                    $hash = [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-","").ToLower()
+                    $manifest.Add([PSCustomObject]@{ Path = $fpath; Size = $size; Sha256 = $hash })
+                    $fileCount++
+                    if ($fileCount % 1000 -eq 0) { Write-Output "  ...created $fileCount / $TargetFileCount files" }
+                } catch {
+                    $fileErrors++
+                    Write-Output "FILE-ERROR [$fpath]: $($_.Exception.Message)"
+                }
+            }
+        }
+    } else {
+        foreach ($d in $dirsGettingFiles) {
+            $numFiles = $rnd.Next(1, 5)
+            for ($f = 0; $f -lt $numFiles; $f++) {
+                $ext = @(".pdf",".xlsx",".docx",".txt")[$rnd.Next(0,4)]
+                $fname = "File_$($f)_$([guid]::NewGuid().ToString('N').Substring(0,8))$ext"
+                $fpath = "$d/$fname"
+                $size = $rnd.Next(300, 15000)
+                $bytes = New-Object byte[] $size
+                $rnd.NextBytes($bytes)
+                try {
+                    New-RemoteFile -Path $fpath -Bytes $bytes
+                    $hash = [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-","").ToLower()
+                    $manifest.Add([PSCustomObject]@{ Path = $fpath; Size = $size; Sha256 = $hash })
+                    $fileCount++
+                    if ($fileCount % 200 -eq 0) { Write-Output "  ...created $fileCount files" }
+                } catch {
+                    $fileErrors++
+                    Write-Output "FILE-ERROR [$fpath]: $($_.Exception.Message)"
+                }
             }
         }
     }

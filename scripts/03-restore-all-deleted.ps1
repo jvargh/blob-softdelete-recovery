@@ -108,12 +108,16 @@ Write-Output "Restoring..."
 $restored = 0
 $alreadyLive = 0
 $failed = 0
+$restoreStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 foreach ($item in $sorted) {
+    $itemStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         Restore-AzDataLakeGen2DeletedItem -Context $ctx -FileSystem $ContainerName -Path $item.Path -DeletionId $item.DeletionId -Confirm:$false -ErrorAction Stop
+        $itemStopwatch.Stop()
         $restored++
-        Write-Output "  RESTORED: $($item.Path)"
+        Write-Output "  RESTORED: $($item.Path)  ($([Math]::Round($itemStopwatch.Elapsed.TotalSeconds, 2))s)"
     } catch {
+        $itemStopwatch.Stop()
         # A shallower parent restored in this same run may have already
         # brought this child back recursively -- treat "already live" as
         # success, not failure.
@@ -121,17 +125,19 @@ foreach ($item in $sorted) {
         try { Get-AzDataLakeGen2Item -Context $ctx -FileSystem $ContainerName -Path $item.Path -ErrorAction Stop | Out-Null } catch { $isLive = $false }
         if ($isLive) {
             $alreadyLive++
-            Write-Output "  ALREADY LIVE (restored via parent): $($item.Path)"
+            Write-Output "  ALREADY LIVE (restored via parent): $($item.Path)  ($([Math]::Round($itemStopwatch.Elapsed.TotalSeconds, 2))s)"
         } else {
             $failed++
             Write-Output "  FAILED: $($item.Path) -- $($_.Exception.Message)"
         }
     }
 }
+$restoreStopwatch.Stop()
 
 Write-Output ""
 Write-Output "=== SUMMARY ==="
 Write-Output "Restored: $restored  AlreadyLive: $alreadyLive  Failed: $failed  Total: $($sorted.Count)"
+Write-Output "Restore duration: $([Math]::Round($restoreStopwatch.Elapsed.TotalSeconds, 2))s (wall-clock, all restore calls in this run)"
 if ($failed -eq 0) {
     Write-Output "RESULT: PASS"
 } else {
