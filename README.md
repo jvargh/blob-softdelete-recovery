@@ -258,6 +258,48 @@ independently confirmed via a live existence check; a follow-up
 `-PreviewOnly` run against an already-clean container correctly reported
 "No soft-deleted items found... Nothing to do."
 
+**Captured sample output — `-PreviewOnly` (zero writes):**
+```
+Storage account : stsdbxlzhgns
+Container       : cortex
+Mode            : PREVIEW ONLY (no changes)
+
+Enumerating all soft-deleted items in 'cortex'...
+
+Found 1 soft-deleted item(s):
+  prd/cortex/filesystem/US/c97b1090-da4e-45a1-8842-b6e844f276b4_CONTOSO_RETAIL_INC/Engagement/0d448cdf-74e4-4c2f-8d40-d988cf5fe933  (deletionId=134317892506907996, deleted=08/21/2026 12:34:10 +00:00, retention=6d)
+
+PREVIEW ONLY -- no changes made. Re-run without -PreviewOnly to restore everything listed above.
+```
+
+**Captured sample output — default (restore) run against the same item:**
+```
+Storage account : stsdbxlzhgns
+Container       : cortex
+Mode            : RESTORE (this WILL make changes)
+
+Enumerating all soft-deleted items in 'cortex'...
+
+Found 1 soft-deleted item(s):
+  prd/cortex/filesystem/US/c97b1090-da4e-45a1-8842-b6e844f276b4_CONTOSO_RETAIL_INC/Engagement/0d448cdf-74e4-4c2f-8d40-d988cf5fe933  (deletionId=134317892506907996, deleted=08/21/2026 12:34:10 +00:00, retention=6d)
+
+Restoring...
+  RESTORED: prd/cortex/filesystem/US/c97b1090-da4e-45a1-8842-b6e844f276b4_CONTOSO_RETAIL_INC/Engagement/0d448cdf-74e4-4c2f-8d40-d988cf5fe933
+
+=== SUMMARY ===
+Restored: 1  AlreadyLive: 0  Failed: 0  Total: 1
+RESULT: PASS
+```
+> Note: `Restore-AzDataLakeGen2DeletedItem` also emits its own PowerShell
+> object to the pipeline (a directory-properties table), which prints
+> between "Restoring..." and the `RESTORED:` line in the live console — this
+> is normal, informational cmdlet output, not an error. It's omitted above
+> for readability.
+
+A follow-up `-PreviewOnly` run immediately after confirmed the container was
+clean again: `"No soft-deleted items found in container 'cortex'. Nothing to
+do."`
+
 ## Typical end-to-end run
 
 ```powershell
